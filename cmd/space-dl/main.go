@@ -17,18 +17,27 @@
 package main
 
 import (
+	"bufio"
+	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/spf13/pflag"
 
 	spacedl "github.com/qitoi/space-dl"
+)
+
+var (
+	ErrEmptySegment = errors.New("hls empty segment")
 )
 
 func usage() {
@@ -45,9 +54,13 @@ func usage() {
 func main() {
 	var check bool
 	var help bool
+	var retryMax int
+	var retryInterval int
 
-	pflag.BoolVarP(&check, "check", "", false, "check ffmpeg")
 	pflag.BoolVarP(&help, "help", "h", false, "help")
+	pflag.BoolVar(&check, "check", false, "check ffmpeg")
+	pflag.IntVar(&retryMax, "retry-max", 10, "retry max count")
+	pflag.IntVar(&retryInterval, "retry-interval", 3, "retry interval time")
 
 	pflag.Parse()
 
@@ -68,13 +81,27 @@ func main() {
 
 	spaceID := os.Args[1]
 
-	if err := run(spaceID); err != nil {
+	if err := run(spaceID, retryMax, retryInterval); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 }
 
-func run(spaceID string) error {
+func run(spaceID string, max int, interval int) error {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	ch := make(chan os.Signal, 1)
+	signal.Notify(ch, syscall.SIGINT)
+	go func() {
+		for {
+			select {
+			case <-ch:
+				cancel()
+			}
+		}
+	}()
+
 	client, _ := spacedl.NewClient()
 	if err := client.Initialize(); err != nil {
 		return err
@@ -99,7 +126,25 @@ func run(spaceID string) error {
 	fmt.Printf("stream url: %s\n", streamURL)
 	fmt.Println("start download")
 
-	if err := startDownload(streamURL, resp, u); err != nil {
+	err = nil
+	for trial := 0; trial < max; trial++ {
+		fmt.Printf("download #%d\n", trial+1)
+
+		err = download(ctx, streamURL, resp, u)
+		if err != ErrEmptySegment {
+			break
+		}
+
+		// hls empty segment, retry
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(time.Duration(interval) * time.Second):
+			// retry
+		}
+	}
+
+	if err != nil {
 		return err
 	}
 
@@ -125,7 +170,17 @@ func getAudioSpaceInfo(client *spacedl.Client, spaceID string) (*spacedl.AudioSp
 	return &resp, nil
 }
 
-func startDownload(streamURL string, audioSpace *spacedl.AudioSpaceByIDResponse, u *spacedl.User) error {
+func download(ctx context.Context, streamURL string, audioSpace *spacedl.AudioSpaceByIDResponse, u *spacedl.User) error {
+	ffmpeg, logfile, err := setupDownload(streamURL, audioSpace, u)
+	if err != nil {
+		return err
+	}
+	defer logfile.Close()
+
+	return execDownload(ctx, ffmpeg, logfile)
+}
+
+func setupDownload(streamURL string, audioSpace *spacedl.AudioSpaceByIDResponse, u *spacedl.User) (*spacedl.FFmpeg, *os.File, error) {
 	spaceID := audioSpace.Data.AudioSpace.Metadata.RestID
 	startedAtUnix := audioSpace.Data.AudioSpace.Metadata.StartedAt
 	startedAt := time.Unix(startedAtUnix/1000, startedAtUnix%1000*1000000)
@@ -133,9 +188,9 @@ func startDownload(streamURL string, audioSpace *spacedl.AudioSpaceByIDResponse,
 	basename := fmt.Sprintf("%s-%s-%d", u.TwitterScreenName, startedAt.Local().Format("20060102-150405"), time.Now().Unix())
 	dst := basename + ".m4a"
 	logFilename := basename + ".log"
-	logfile, err := os.OpenFile(logFilename, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0666)
+	logfile, err := os.OpenFile(logFilename, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0666)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 
 	metadata := map[string]string{
@@ -145,23 +200,51 @@ func startDownload(streamURL string, audioSpace *spacedl.AudioSpaceByIDResponse,
 		"comment": fmt.Sprintf("https://twitter.com/i/spaces/%s", spaceID),
 	}
 
-	ffmpeg := spacedl.FFmpeg{}
-	err = ffmpeg.Download(streamURL, dst, metadata, logfile)
+	return spacedl.NewFFmpeg(streamURL, dst, metadata), logfile, nil
+}
+
+func execDownload(ctx context.Context, ffmpeg *spacedl.FFmpeg, logfile *os.File) error {
+	err := ffmpeg.Download()
 	if err != nil {
 		return err
 	}
 
-	ch := make(chan os.Signal, 1)
-	signal.Notify(ch, syscall.SIGINT)
+	reader := io.TeeReader(ffmpeg.Reader, logfile)
+	done := make(chan interface{})
+	defer close(done)
 
 	go func() {
-		for range ch {
-			ffmpeg.Stop()
-			break
+	loop:
+		for {
+			select {
+			case <-ctx.Done():
+				fmt.Printf("stop\n")
+				ffmpeg.Stop()
+				break loop
+			case <-done:
+				break loop
+			}
 		}
 	}()
 
+	scanner := bufio.NewScanner(reader)
+	var emptySegment bool
+	for scanner.Scan() {
+		if !emptySegment {
+			s := scanner.Text()
+			if strings.HasSuffix(s, "Empty segment") {
+				emptySegment = true
+				break
+			}
+		}
+	}
+
 	if err := ffmpeg.Wait(); err != nil {
+		if _, ok := err.(*exec.ExitError); ok {
+			if emptySegment {
+				return ErrEmptySegment
+			}
+		}
 		return err
 	}
 

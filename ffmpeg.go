@@ -17,14 +17,15 @@
 package spacedl
 
 import (
-	"fmt"
-	"os"
+	"io"
 	"os/exec"
 	"syscall"
 )
 
 type FFmpeg struct {
-	cmd *exec.Cmd
+	cmd     *exec.Cmd
+	Command string
+	Reader  io.ReadCloser
 }
 
 func CheckFFmpeg() error {
@@ -32,24 +33,29 @@ func CheckFFmpeg() error {
 	return cmd.Run()
 }
 
-func (f *FFmpeg) Download(src, dst string, metadata map[string]string, logfile *os.File) error {
-	opts := []string{"-i", src, "-c", "copy", "-bsf:a", "aac_adtstoasc"}
+func NewFFmpeg(src, dst string, metadata map[string]string) *FFmpeg {
+	f := &FFmpeg{}
 
+	opts := []string{"-i", src, "-c", "copy", "-bsf:a", "aac_adtstoasc"}
 	for k, v := range metadata {
 		opts = append(opts, "-metadata", k+"="+v)
 	}
-
 	opts = append(opts, dst)
 
 	f.cmd = createCommand("ffmpeg", opts...)
+	f.Command = f.cmd.String()
 
-	if logfile != nil {
-		f.cmd.Stdout = logfile
-		f.cmd.Stderr = logfile
-		fmt.Fprintln(logfile, f.cmd.String())
-		defer logfile.Sync()
+	reader, err := f.cmd.StdoutPipe()
+	if err != nil {
+		return nil
 	}
+	f.cmd.Stderr = f.cmd.Stdout
+	f.Reader = reader
 
+	return f
+}
+
+func (f *FFmpeg) Download() error {
 	return f.cmd.Start()
 }
 
