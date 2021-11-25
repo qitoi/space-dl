@@ -74,6 +74,7 @@ type AudioSpaceByIDVariables struct {
 	WithSuperFollowsTweetFields bool   `json:"withSuperFollowsTweetFields"`
 	WithReplays                 bool   `json:"withReplays"`
 	WithScheduledSpaces         bool   `json:"withScheduledSpaces"`
+	WithDownvotePerspective     bool   `json:"withDownvotePerspective"`
 }
 
 type User struct {
