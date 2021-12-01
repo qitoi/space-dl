@@ -339,12 +339,22 @@ func extractOperations(src string) map[string]*Operation {
 		}
 
 		s := strings.LastIndexByte(src[:idx], '{')
-		e := idx + strings.IndexByte(src[idx:], '}') + 1
+		nest := 1
+		e := s + 1
+		for e <= len(src) && nest > 0 {
+			switch src[e] {
+			case '{':
+				nest += 1
+			case '}':
+				nest -= 1
+			}
+			e += 1
+		}
 		obj := "(" + src[s:e] + ")"
 
 		program, err := parser.ParseFile(nil, "main.js", obj, 0)
 		if err != nil {
-			continue
+			break
 		}
 
 		var op Operation
