@@ -17,27 +17,16 @@
 package main
 
 import (
-	"bufio"
-	"context"
 	"errors"
 	"fmt"
-	"io"
 	"log"
 	"os"
-	"os/exec"
-	"os/signal"
 	"path"
-	"strings"
-	"syscall"
 	"time"
 
 	"github.com/spf13/pflag"
 
 	spacedl "github.com/qitoi/space-dl"
-)
-
-var (
-	ErrEmptySegment = errors.New("hls empty segment")
 )
 
 func usage() {
@@ -54,13 +43,9 @@ func usage() {
 func main() {
 	var check bool
 	var help bool
-	var retryMax int
-	var retryInterval int
 
 	pflag.BoolVarP(&help, "help", "h", false, "help")
 	pflag.BoolVar(&check, "check", false, "check ffmpeg")
-	pflag.IntVar(&retryMax, "retry-max", 10, "retry max count")
-	pflag.IntVar(&retryInterval, "retry-interval", 3, "retry interval time")
 
 	pflag.Parse()
 
@@ -81,27 +66,13 @@ func main() {
 
 	spaceID := os.Args[1]
 
-	if err := run(spaceID, retryMax, retryInterval); err != nil {
+	if err := run(spaceID); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 }
 
-func run(spaceID string, max int, interval int) error {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	ch := make(chan os.Signal, 1)
-	signal.Notify(ch, syscall.SIGINT)
-	go func() {
-		for {
-			select {
-			case <-ch:
-				cancel()
-			}
-		}
-	}()
-
+func run(spaceID string) error {
 	client, _ := spacedl.NewClient()
 	if err := client.Initialize(); err != nil {
 		return err
@@ -112,6 +83,10 @@ func run(spaceID string, max int, interval int) error {
 		return err
 	}
 
+	if !isSpaceAvailable(resp) {
+		return errors.New("space is not available")
+	}
+
 	u := spacedl.GetOwnerUser(resp)
 	if u == nil {
 		return errors.New("user not found")
@@ -120,37 +95,47 @@ func run(spaceID string, max int, interval int) error {
 	mediaKey := resp.Data.AudioSpace.Metadata.MediaKey
 	streamURL, err := client.GetStreamURL(mediaKey)
 	if err != nil {
-		return err
+		return fmt.Errorf("stream url not found: %w", err)
 	}
+
+	startedAtUnix := resp.Data.AudioSpace.Metadata.StartedAt
+	startedAt := time.Unix(startedAtUnix/1000, startedAtUnix%1000*1000000)
+	dirname := fmt.Sprintf("%s-%s", startedAt.Local().Format("20060102-150405"), u.TwitterScreenName)
 
 	fmt.Printf("stream url: %s\n", streamURL)
 	fmt.Println("start download")
 
-	err = nil
-	for trial := 0; trial < max; trial++ {
-		fmt.Printf("download #%d\n", trial+1)
+	dl := spacedl.NewDownloader(streamURL, dirname)
+	dl.Start(1 * time.Second)
 
-		err = download(ctx, streamURL, resp, u)
-		if err != ErrEmptySegment {
-			break
-		}
-
-		// hls empty segment, retry
+	ticker := time.NewTicker(10 * time.Second)
+loop:
+	for {
 		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(time.Duration(interval) * time.Second):
-			// retry
+		case <-ticker.C:
+			resp, err := getAudioSpaceInfo(client, spaceID)
+			if err != nil {
+				fmt.Printf("space info error: %v\n", err)
+			}
+			if isSpaceEnded(resp) {
+				break loop
+			}
 		}
 	}
 
-	if err != nil {
-		return err
-	}
+	dl.Close()
 
 	fmt.Println("done")
 
 	return nil
+}
+
+func isSpaceAvailable(resp *spacedl.AudioSpaceByIDResponse) bool {
+	return resp.Data.AudioSpace.Metadata.State == "Running" || resp.Data.AudioSpace.Metadata.State == "Ended"
+}
+
+func isSpaceEnded(resp *spacedl.AudioSpaceByIDResponse) bool {
+	return resp.Data.AudioSpace.Metadata.State == "Ended"
 }
 
 func getAudioSpaceInfo(client *spacedl.Client, spaceID string) (*spacedl.AudioSpaceByIDResponse, error) {
@@ -163,90 +148,5 @@ func getAudioSpaceInfo(client *spacedl.Client, spaceID string) (*spacedl.AudioSp
 		return nil, err
 	}
 
-	if resp.Data.AudioSpace.Metadata.State != "Running" {
-		return nil, errors.New("space is not running")
-	}
-
 	return &resp, nil
-}
-
-func download(ctx context.Context, streamURL string, audioSpace *spacedl.AudioSpaceByIDResponse, u *spacedl.User) error {
-	ffmpeg, logfile, err := setupDownload(streamURL, audioSpace, u)
-	if err != nil {
-		return err
-	}
-	defer logfile.Close()
-
-	return execDownload(ctx, ffmpeg, logfile)
-}
-
-func setupDownload(streamURL string, audioSpace *spacedl.AudioSpaceByIDResponse, u *spacedl.User) (*spacedl.FFmpeg, *os.File, error) {
-	spaceID := audioSpace.Data.AudioSpace.Metadata.RestID
-	startedAtUnix := audioSpace.Data.AudioSpace.Metadata.StartedAt
-	startedAt := time.Unix(startedAtUnix/1000, startedAtUnix%1000*1000000)
-
-	basename := fmt.Sprintf("%s-%s-%d", u.TwitterScreenName, startedAt.Local().Format("20060102-150405"), time.Now().Unix())
-	dst := basename + ".m4a"
-	logFilename := basename + ".log"
-	logfile, err := os.OpenFile(logFilename, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0666)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	metadata := map[string]string{
-		"title":   audioSpace.Data.AudioSpace.Metadata.Title,
-		"artist":  u.DisplayName,
-		"date":    startedAt.Local().Format("2006"),
-		"comment": fmt.Sprintf("https://twitter.com/i/spaces/%s", spaceID),
-	}
-
-	return spacedl.NewFFmpeg(streamURL, dst, metadata), logfile, nil
-}
-
-func execDownload(ctx context.Context, ffmpeg *spacedl.FFmpeg, logfile *os.File) error {
-	err := ffmpeg.Download()
-	if err != nil {
-		return err
-	}
-
-	reader := io.TeeReader(ffmpeg.Reader, logfile)
-	done := make(chan interface{})
-	defer close(done)
-
-	go func() {
-	loop:
-		for {
-			select {
-			case <-ctx.Done():
-				fmt.Printf("stop\n")
-				ffmpeg.Stop()
-				break loop
-			case <-done:
-				break loop
-			}
-		}
-	}()
-
-	scanner := bufio.NewScanner(reader)
-	var emptySegment bool
-	for scanner.Scan() {
-		if !emptySegment {
-			s := scanner.Text()
-			if strings.HasSuffix(s, "Empty segment") {
-				emptySegment = true
-				break
-			}
-		}
-	}
-
-	if err := ffmpeg.Wait(); err != nil {
-		if _, ok := err.(*exec.ExitError); ok {
-			if emptySegment {
-				return ErrEmptySegment
-			}
-		}
-		return err
-	}
-
-	return nil
 }

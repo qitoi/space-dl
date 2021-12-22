@@ -42,7 +42,7 @@ func NewFFmpeg(src, dst string, metadata map[string]string) *FFmpeg {
 	}
 	opts = append(opts, dst)
 
-	f.cmd = createCommand("ffmpeg", opts...)
+	f.cmd = exec.Command("ffmpeg", opts...)
 	f.Command = f.cmd.String()
 
 	reader, err := f.cmd.StdoutPipe()
