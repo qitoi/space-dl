@@ -19,14 +19,22 @@ package main
 import (
 	"errors"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"os"
+	"os/exec"
 	"path"
+	"strings"
 	"time"
 
 	"github.com/spf13/pflag"
 
 	spacedl "github.com/qitoi/space-dl"
+)
+
+const (
+	METADATA_FILENAME = "metadata.txt"
+	FILELIST_FILENAME = "files.txt"
 )
 
 func usage() {
@@ -92,20 +100,83 @@ func run(spaceID string) error {
 		return errors.New("user not found")
 	}
 
-	mediaKey := resp.Data.AudioSpace.Metadata.MediaKey
-	streamURL, err := client.GetStreamURL(mediaKey)
-	if err != nil {
-		return fmt.Errorf("stream url not found: %w", err)
-	}
-
 	startedAtUnix := resp.Data.AudioSpace.Metadata.StartedAt
 	startedAt := time.Unix(startedAtUnix/1000, startedAtUnix%1000*1000000)
-	dirname := fmt.Sprintf("%s-%s", startedAt.Local().Format("20060102-150405"), u.TwitterScreenName)
+	dir := fmt.Sprintf("%s-%s", startedAt.Local().Format("20060102-150405"), u.TwitterScreenName)
+	if err := os.MkdirAll(dir, 0777); err != nil {
+		return err
+	}
+
+	// save metadata
+	metadata := path.Join(dir, METADATA_FILENAME)
+	title := resp.Data.AudioSpace.Metadata.Title
+	if err := saveMetadata(metadata, spaceID, title, u.DisplayName, startedAt); err != nil {
+		return err
+	}
+
+	mediaKey := resp.Data.AudioSpace.Metadata.MediaKey
+	streamURL, err := getStreamURL(client, mediaKey)
+	if err != nil {
+		return err
+	}
 
 	fmt.Printf("stream url: %s\n", streamURL)
 	fmt.Println("start download")
 
-	dl := spacedl.NewDownloader(streamURL, dirname)
+	// download stream
+	if err := download(client, spaceID, streamURL, dir); err != nil {
+		return err
+	}
+
+	// save file list
+	filelist := path.Join(dir, FILELIST_FILENAME)
+	if err := saveFileList(filelist, dir); err != nil {
+		return err
+	}
+
+	fmt.Println("merge files")
+
+	// merge media files
+	output := dir + ".m4a"
+	if err := mergeFiles(output, filelist, metadata); err != nil {
+		return fmt.Errorf("ffmpeg error: %w", err)
+	}
+
+	fmt.Println("done")
+
+	return nil
+}
+
+func saveMetadata(file string, spaceID, title, name string, startedAt time.Time) error {
+	var meta spacedl.Metadata
+	meta.Add("title", title)
+	meta.Add("artist", name)
+	meta.Add("date", startedAt.Local().Format("2006"))
+	meta.Add("comment", fmt.Sprintf("https://twitter.com/i/spaces/%s", spaceID))
+
+	f, err := os.Create(file)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	if _, err := f.WriteString(meta.String()); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func getStreamURL(client *spacedl.Client, mediaKey string) (string, error) {
+	streamURL, err := client.GetStreamURL(mediaKey)
+	if err != nil {
+		return "", fmt.Errorf("stream url not found: %w", err)
+	}
+	return streamURL, nil
+}
+
+func download(client *spacedl.Client, spaceID, streamURL, dir string) error {
+	dl := spacedl.NewDownloader(streamURL, dir)
 	dl.Start(1 * time.Second)
 
 	ticker := time.NewTicker(10 * time.Second)
@@ -125,9 +196,56 @@ loop:
 
 	dl.Close()
 
-	fmt.Println("done")
+	return nil
+}
+
+func saveFileList(file string, input string) error {
+	fis, err := ioutil.ReadDir(input)
+	if err != nil {
+		return err
+	}
+
+	f, err := os.Create(file)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	for _, fi := range fis {
+		if path.Ext(fi.Name()) != ".aac" {
+			continue
+		}
+
+		var parts []string
+		for _, n := range strings.Split(fi.Name(), "'") {
+			parts = append(parts, "'"+n+"'")
+		}
+		name := strings.Join(parts, "\\'")
+		_, err := f.WriteString("file " + name + "\n")
+		if err != nil {
+			return err
+		}
+	}
 
 	return nil
+}
+
+func mergeFiles(file string, filelist string, metadata string) error {
+	opts := []string{
+		"-safe", "0",
+		"-f", "concat",
+		"-i", filelist,
+		"-i", metadata,
+		"-map_metadata", "1",
+		"-codec", "copy",
+		"-y",
+		file,
+	}
+	cmd := exec.Command("ffmpeg", opts...)
+
+	fmt.Println(cmd.String())
+
+	return cmd.Run()
 }
 
 func isSpaceAvailable(resp *spacedl.AudioSpaceByIDResponse) bool {

@@ -17,10 +17,35 @@
 package spacedl
 
 import (
-	"os/exec"
+	"fmt"
+	"strings"
 )
 
-func CheckFFmpeg() error {
-	cmd := exec.Command("ffmpeg", "-version")
-	return cmd.Run()
+type keyValue struct {
+	key   string
+	value string
+}
+
+type Metadata struct {
+	kvs []keyValue
+}
+
+func (m *Metadata) Add(k, v string) {
+	m.kvs = append(m.kvs, keyValue{
+		key:   k,
+		value: v,
+	})
+}
+
+func (m *Metadata) String() string {
+	s := ";FFMETADATA1\n"
+	for _, kv := range m.kvs {
+		s += fmt.Sprintf("%s=%s\n", escape(kv.key), escape(kv.value))
+	}
+	return s
+}
+
+func escape(s string) string {
+	rep := strings.NewReplacer(`=`, `\=`, `;`, `\;`, `#`, `\#`, "\n", "\\\n")
+	return rep.Replace(s)
 }
