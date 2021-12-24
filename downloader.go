@@ -18,8 +18,8 @@ package spacedl
 
 import (
 	"errors"
-	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -40,6 +40,8 @@ type Downloader struct {
 	wg    sync.WaitGroup
 
 	Parallel int
+
+	Logger *log.Logger
 }
 
 func NewDownloader(url string, outputDir string) *Downloader {
@@ -66,7 +68,7 @@ func (d *Downloader) Start(interval time.Duration) {
 				break loop
 			case <-ticker.C:
 				if urls, err := d.getSegments(); err != nil {
-					fmt.Printf("playlist download error: %v\n", err)
+					d.print("playlist download error: %v", err)
 				} else {
 					for _, u := range urls {
 						d.dlCh <- u
@@ -83,7 +85,7 @@ func (d *Downloader) Start(interval time.Duration) {
 			defer d.wg.Done()
 			for u := range d.dlCh {
 				if err := d.downloadSegment(u); err != nil {
-					fmt.Printf("segment download error (%v): %v\n", *u, err)
+					d.print("download error (%v): %v", *u, err)
 				}
 			}
 		}()
@@ -133,7 +135,7 @@ func (d *Downloader) getSegments() ([]*url.URL, error) {
 			if _, ok := d.seq.Load(seg.SeqId); !ok {
 				segURL, err := u.Parse(seg.URI)
 				if err != nil {
-					fmt.Printf("url parse error: %v\n", err)
+					d.print("url parse error: %v", err)
 				}
 
 				d.seq.Store(seg.SeqId, true)
@@ -146,6 +148,8 @@ func (d *Downloader) getSegments() ([]*url.URL, error) {
 }
 
 func (d *Downloader) downloadSegment(u *url.URL) error {
+	d.print("download: %s", u.String())
+
 	if err := os.MkdirAll(d.output, 0777); err != nil {
 		return err
 	}
@@ -172,4 +176,10 @@ func (d *Downloader) downloadSegment(u *url.URL) error {
 
 	_, err = io.Copy(f, resp.Body)
 	return err
+}
+
+func (d *Downloader) print(format string, v ...interface{}) {
+	if d.Logger != nil {
+		d.Logger.Printf(format+"\n", v...)
+	}
 }

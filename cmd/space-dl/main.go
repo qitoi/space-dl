@@ -19,6 +19,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
 	"os"
@@ -107,6 +108,14 @@ func run(spaceID string) error {
 		return err
 	}
 
+	// create log
+	logfile, err := os.Create(path.Join(dir, "space-dl.log"))
+	if err != nil {
+		return err
+	}
+	lw := io.MultiWriter(os.Stdout, logfile)
+	logger := log.New(lw, "", log.LstdFlags)
+
 	// save metadata
 	metadata := path.Join(dir, METADATA_FILENAME)
 	title := resp.Data.AudioSpace.Metadata.Title
@@ -120,11 +129,10 @@ func run(spaceID string) error {
 		return err
 	}
 
-	fmt.Printf("stream url: %s\n", streamURL)
-	fmt.Println("start download")
+	logger.Printf("stream url: %s\n", streamURL)
 
 	// download stream
-	if err := download(client, spaceID, streamURL, dir); err != nil {
+	if err := download(client, spaceID, streamURL, dir, logger); err != nil {
 		return err
 	}
 
@@ -134,15 +142,15 @@ func run(spaceID string) error {
 		return err
 	}
 
-	fmt.Println("merge files")
+	logger.Println("merge files")
 
 	// merge media files
 	output := dir + ".m4a"
-	if err := mergeFiles(output, filelist, metadata); err != nil {
+	if err := mergeFiles(output, filelist, metadata, logger); err != nil {
 		return fmt.Errorf("ffmpeg error: %w", err)
 	}
 
-	fmt.Println("done")
+	logger.Println("done")
 
 	return nil
 }
@@ -175,8 +183,10 @@ func getStreamURL(client *spacedl.Client, mediaKey string) (string, error) {
 	return streamURL, nil
 }
 
-func download(client *spacedl.Client, spaceID, streamURL, dir string) error {
+func download(client *spacedl.Client, spaceID, streamURL, dir string, logger *log.Logger) error {
 	dl := spacedl.NewDownloader(streamURL, dir)
+	dl.Logger = logger
+
 	dl.Start(1 * time.Second)
 
 	ticker := time.NewTicker(10 * time.Second)
@@ -186,7 +196,7 @@ loop:
 		case <-ticker.C:
 			resp, err := getAudioSpaceInfo(client, spaceID)
 			if err != nil {
-				fmt.Printf("space info error: %v\n", err)
+				logger.Printf("space info error: %v\n", err)
 			}
 			if isSpaceEnded(resp) {
 				break loop
@@ -230,7 +240,7 @@ func saveFileList(file string, input string) error {
 	return nil
 }
 
-func mergeFiles(file string, filelist string, metadata string) error {
+func mergeFiles(file string, filelist string, metadata string, logger *log.Logger) error {
 	opts := []string{
 		"-safe", "0",
 		"-f", "concat",
@@ -242,8 +252,10 @@ func mergeFiles(file string, filelist string, metadata string) error {
 		file,
 	}
 	cmd := exec.Command("ffmpeg", opts...)
+	cmd.Stdout = logger.Writer()
+	cmd.Stderr = cmd.Stdout
 
-	fmt.Println(cmd.String())
+	logger.Printf("run: %s\n", cmd.String())
 
 	return cmd.Run()
 }
