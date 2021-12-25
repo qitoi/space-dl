@@ -197,6 +197,7 @@ loop:
 			resp, err := getAudioSpaceInfo(client, spaceID)
 			if err != nil {
 				logger.Printf("space info error: %v\n", err)
+				continue
 			}
 			if isSpaceEnded(resp) {
 				break loop
