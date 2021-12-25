@@ -25,7 +25,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/spf13/pflag"
@@ -35,7 +34,6 @@ import (
 
 const (
 	METADATA_FILENAME = "metadata.txt"
-	FILELIST_FILENAME = "files.txt"
 )
 
 func usage() {
@@ -136,17 +134,14 @@ func run(spaceID string) error {
 		return err
 	}
 
-	// save file list
-	filelist := filepath.Join(dir, FILELIST_FILENAME)
-	if err := saveFileList(filelist, dir); err != nil {
+	files, err := getSegmentFilePaths(dir)
+	if err != nil {
 		return err
 	}
 
-	logger.Println("merge files")
-
-	// merge media files
+	// concatenate media files
 	output := dir + ".m4a"
-	if err := mergeFiles(output, filelist, metadata, logger); err != nil {
+	if err := concatFiles(output, files, metadata, logger); err != nil {
 		return fmt.Errorf("ffmpeg error: %w", err)
 	}
 
@@ -210,47 +205,36 @@ loop:
 	return nil
 }
 
-func saveFileList(file string, input string) error {
-	fis, err := ioutil.ReadDir(input)
+func getSegmentFilePaths(dir string) ([]string, error) {
+	fis, err := ioutil.ReadDir(dir)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	f, err := os.Create(file)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-
+	var files []string
 	for _, fi := range fis {
 		if filepath.Ext(fi.Name()) != ".aac" {
 			continue
 		}
 
-		var parts []string
-		for _, n := range strings.Split(fi.Name(), "'") {
-			parts = append(parts, "'"+n+"'")
-		}
-		name := strings.Join(parts, "\\'")
-		_, err := f.WriteString("file " + name + "\n")
+		p, err := filepath.Abs(filepath.Join(dir, fi.Name()))
 		if err != nil {
-			return err
+			return nil, err
 		}
+		files = append(files, p)
 	}
 
-	return nil
+	return files, nil
 }
 
-func mergeFiles(file string, filelist string, metadata string, logger *log.Logger) error {
+func concatFiles(output string, files []string, metadata string, logger *log.Logger) error {
 	opts := []string{
-		"-safe", "0",
-		"-f", "concat",
-		"-i", filelist,
+		"-i", "pipe:0",
 		"-i", metadata,
 		"-map_metadata", "1",
 		"-codec", "copy",
 		"-y",
-		file,
+		output,
 	}
 	cmd := exec.Command("ffmpeg", opts...)
 	cmd.Stdout = logger.Writer()
@@ -258,7 +242,48 @@ func mergeFiles(file string, filelist string, metadata string, logger *log.Logge
 
 	logger.Printf("run: %s\n", cmd.String())
 
-	return cmd.Run()
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return err
+	}
+
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+
+	ch := make(chan error)
+
+	go func() {
+		defer stdin.Close()
+		defer close(ch)
+
+		for _, input := range files {
+			err := func() error {
+				f, err := os.Open(input)
+				if err != nil {
+					return err
+				}
+				defer f.Close()
+				if _, err = io.Copy(stdin, f); err != nil {
+					return err
+				}
+				return nil
+			}()
+			if err != nil {
+				ch <- err
+				return
+			}
+		}
+	}()
+
+	for err := range ch {
+		if err != nil {
+			cmd.Process.Kill()
+			return err
+		}
+	}
+
+	return cmd.Wait()
 }
 
 func isSpaceAvailable(resp *spacedl.AudioSpaceByIDResponse) bool {
