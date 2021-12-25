@@ -24,7 +24,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
-	"path"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -40,7 +40,7 @@ const (
 
 func usage() {
 	e, _ := os.Executable()
-	e = path.Base(e)
+	e = filepath.Base(e)
 	fmt.Println()
 	fmt.Println("Usage:")
 	fmt.Printf("  %s <space_id>\n", e)
@@ -109,7 +109,7 @@ func run(spaceID string) error {
 	}
 
 	// create log
-	logfile, err := os.Create(path.Join(dir, "space-dl.log"))
+	logfile, err := os.Create(filepath.Join(dir, "space-dl.log"))
 	if err != nil {
 		return err
 	}
@@ -117,7 +117,7 @@ func run(spaceID string) error {
 	logger := log.New(lw, "", log.LstdFlags)
 
 	// save metadata
-	metadata := path.Join(dir, METADATA_FILENAME)
+	metadata := filepath.Join(dir, METADATA_FILENAME)
 	title := resp.Data.AudioSpace.Metadata.Title
 	if err := saveMetadata(metadata, spaceID, title, u.DisplayName, startedAt); err != nil {
 		return err
@@ -137,7 +137,7 @@ func run(spaceID string) error {
 	}
 
 	// save file list
-	filelist := path.Join(dir, FILELIST_FILENAME)
+	filelist := filepath.Join(dir, FILELIST_FILENAME)
 	if err := saveFileList(filelist, dir); err != nil {
 		return err
 	}
@@ -223,7 +223,7 @@ func saveFileList(file string, input string) error {
 	defer f.Close()
 
 	for _, fi := range fis {
-		if path.Ext(fi.Name()) != ".aac" {
+		if filepath.Ext(fi.Name()) != ".aac" {
 			continue
 		}
 

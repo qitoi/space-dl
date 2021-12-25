@@ -23,7 +23,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"path"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -155,8 +155,8 @@ func (d *Downloader) downloadSegment(u *url.URL) error {
 	}
 
 	// output file
-	filename := path.Base(u.Path)
-	p := path.Join(d.output, filename)
+	filename := filepath.Base(u.Path)
+	p := filepath.Join(d.output, filename)
 	f, err := os.OpenFile(p, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0666)
 	if err != nil {
 		return err
