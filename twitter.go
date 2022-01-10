@@ -63,18 +63,19 @@ func (q *QueryError) Error() string {
 }
 
 type AudioSpaceByIDVariables struct {
-	ID                          string `json:"id"`
-	IsMetatagsQuery             bool   `json:"isMetatagsQuery"`
-	WithSuperFollowsUserFields  bool   `json:"withSuperFollowsUserFields"`
-	WithUserResults             bool   `json:"withUserResults"`
-	WithNftAvatar               bool   `json:"withNftAvatar"`
-	WithBirdwatchPivots         bool   `json:"withBirdwatchPivots"`
-	WithReactionsMetadata       bool   `json:"withReactionsMetadata"`
-	WithReactionsPerspective    bool   `json:"withReactionsPerspective"`
-	WithSuperFollowsTweetFields bool   `json:"withSuperFollowsTweetFields"`
-	WithReplays                 bool   `json:"withReplays"`
-	WithScheduledSpaces         bool   `json:"withScheduledSpaces"`
-	WithDownvotePerspective     bool   `json:"withDownvotePerspective"`
+	ID                            string `json:"id"`
+	IsMetatagsQuery               bool   `json:"isMetatagsQuery"`
+	WithSuperFollowsUserFields    bool   `json:"withSuperFollowsUserFields"`
+	WithUserResults               bool   `json:"withUserResults"`
+	WithNftAvatar                 bool   `json:"withNftAvatar"`
+	WithBirdwatchPivots           bool   `json:"withBirdwatchPivots"`
+	WithReactionsMetadata         bool   `json:"withReactionsMetadata"`
+	WithReactionsPerspective      bool   `json:"withReactionsPerspective"`
+	WithSuperFollowsTweetFields   bool   `json:"withSuperFollowsTweetFields"`
+	WithReplays                   bool   `json:"withReplays"`
+	WithScheduledSpaces           bool   `json:"withScheduledSpaces"`
+	WithDownvotePerspective       bool   `json:"withDownvotePerspective"`
+	FsDontMentionMeViewAPIEnabled bool   `json:"__fs_dont_mention_me_view_api_enabled"`
 }
 
 type User struct {
