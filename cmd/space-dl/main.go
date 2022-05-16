@@ -295,11 +295,15 @@ func isSpaceEnded(resp *spacedl.AudioSpaceByIDResponse) bool {
 }
 
 func getAudioSpaceInfo(client *spacedl.Client, spaceID string) (*spacedl.AudioSpaceByIDResponse, error) {
-	variables := spacedl.AudioSpaceByIDVariables{
+	params := make(map[string]interface{})
+	params["variables"] = spacedl.AudioSpaceByIDVariables{
 		ID: spaceID,
 	}
+	params["features"] = spacedl.AudioSpaceByIDFeatures{}
+
 	var resp spacedl.AudioSpaceByIDResponse
-	err := client.Query("AudioSpaceById", variables, &resp)
+
+	err := client.Query("AudioSpaceById", params, &resp)
 	if err != nil {
 		return nil, err
 	}

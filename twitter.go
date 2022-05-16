@@ -63,19 +63,21 @@ func (q *QueryError) Error() string {
 }
 
 type AudioSpaceByIDVariables struct {
-	ID                            string `json:"id"`
-	IsMetatagsQuery               bool   `json:"isMetatagsQuery"`
-	WithSuperFollowsUserFields    bool   `json:"withSuperFollowsUserFields"`
-	WithUserResults               bool   `json:"withUserResults"`
-	WithNftAvatar                 bool   `json:"withNftAvatar"`
-	WithBirdwatchPivots           bool   `json:"withBirdwatchPivots"`
-	WithReactionsMetadata         bool   `json:"withReactionsMetadata"`
-	WithReactionsPerspective      bool   `json:"withReactionsPerspective"`
-	WithSuperFollowsTweetFields   bool   `json:"withSuperFollowsTweetFields"`
-	WithReplays                   bool   `json:"withReplays"`
-	WithScheduledSpaces           bool   `json:"withScheduledSpaces"`
-	WithDownvotePerspective       bool   `json:"withDownvotePerspective"`
-	FsDontMentionMeViewAPIEnabled bool   `json:"__fs_dont_mention_me_view_api_enabled"`
+	ID                          string `json:"id"`
+	IsMetatagsQuery             bool   `json:"isMetatagsQuery"`
+	WithSuperFollowsUserFields  bool   `json:"withSuperFollowsUserFields"`
+	WithDownvotePerspective     bool   `json:"withDownvotePerspective"`
+	WithReactionsMetadata       bool   `json:"withReactionsMetadata"`
+	WithReactionsPerspective    bool   `json:"withReactionsPerspective"`
+	WithSuperFollowsTweetFields bool   `json:"withSuperFollowsTweetFields"`
+	WithReplays                 bool   `json:"withReplays"`
+}
+
+type AudioSpaceByIDFeatures struct {
+	DontMentionMeViewApiEnabled      bool `json:"dont_mention_me_view_api_enabled"`
+	InteractiveTextEnabled           bool `json:"interactive_text_enabled"`
+	ResponsiveWebUcGqlEnabled        bool `json:"responsive_web_uc_gql_enabled"`
+	ResponsiveWebEditTweetApiEnabled bool `json:"responsive_web_edit_tweet_api_enabled"`
 }
 
 type User struct {
@@ -262,19 +264,20 @@ func (c *Client) getMainJsURL() (string, error) {
 	return string(matches[1]), nil
 }
 
-func (c *Client) Query(name string, variables interface{}, out interface{}) error {
+func (c *Client) Query(name string, params map[string]interface{}, out interface{}) error {
 	op, ok := c.operations[name]
 	if !ok {
 		return fmt.Errorf("operation not found: %v", name)
 	}
 
-	v, err := json.Marshal(variables)
-	if err != nil {
-		return err
-	}
-
 	query := make(url.Values)
-	query.Add("variables", string(v))
+	for k, v := range params {
+		s, err := json.Marshal(v)
+		if err != nil {
+			return err
+		}
+		query.Add(k, string(s))
+	}
 
 	u := fmt.Sprintf("https://twitter.com/i/api/graphql/%s/%s", op.QueryID, op.OperationName)
 	resp, err := c.get(u, &query)
