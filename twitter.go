@@ -78,6 +78,7 @@ type AudioSpaceByIDFeatures struct {
 	InteractiveTextEnabled           bool `json:"interactive_text_enabled"`
 	ResponsiveWebUcGqlEnabled        bool `json:"responsive_web_uc_gql_enabled"`
 	ResponsiveWebEditTweetApiEnabled bool `json:"responsive_web_edit_tweet_api_enabled"`
+	VibeTweetContextEnabled          bool `json:"vibe_tweet_context_enabled"`
 }
 
 type User struct {
