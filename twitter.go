@@ -74,11 +74,12 @@ type AudioSpaceByIDVariables struct {
 }
 
 type AudioSpaceByIDFeatures struct {
-	DontMentionMeViewApiEnabled      bool `json:"dont_mention_me_view_api_enabled"`
-	InteractiveTextEnabled           bool `json:"interactive_text_enabled"`
-	ResponsiveWebUcGqlEnabled        bool `json:"responsive_web_uc_gql_enabled"`
-	ResponsiveWebEditTweetApiEnabled bool `json:"responsive_web_edit_tweet_api_enabled"`
-	VibeTweetContextEnabled          bool `json:"vibe_tweet_context_enabled"`
+	DontMentionMeViewApiEnabled               bool `json:"dont_mention_me_view_api_enabled"`
+	InteractiveTextEnabled                    bool `json:"interactive_text_enabled"`
+	ResponsiveWebUcGqlEnabled                 bool `json:"responsive_web_uc_gql_enabled"`
+	ResponsiveWebEditTweetApiEnabled          bool `json:"responsive_web_edit_tweet_api_enabled"`
+	VibeTweetContextEnabled                   bool `json:"vibe_tweet_context_enabled""`
+	StandardizedNudgesForMisinfoNudgesEnabled bool `json:"standardized_nudges_for_misinfo_nudges_enabled"`
 }
 
 type User struct {
