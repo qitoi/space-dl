@@ -80,6 +80,7 @@ type AudioSpaceByIDFeatures struct {
 	ResponsiveWebEditTweetApiEnabled          bool `json:"responsive_web_edit_tweet_api_enabled"`
 	VibeTweetContextEnabled                   bool `json:"vibe_tweet_context_enabled""`
 	StandardizedNudgesForMisinfoNudgesEnabled bool `json:"standardized_nudges_for_misinfo_nudges_enabled"`
+	ResponsiveWebEnhanceCardsEnabled          bool `json:"responsive_web_enhance_cards_enabled"`
 }
 
 type User struct {
