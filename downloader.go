@@ -30,18 +30,22 @@ import (
 	"github.com/grafov/m3u8"
 )
 
+const (
+	playlistDownloadErrorLimit = 30
+)
+
 type Downloader struct {
 	url    string
 	output string
 	seq    sync.Map
 
-	close chan interface{}
-	dlCh  chan *url.URL
-	wg    sync.WaitGroup
+	halt chan struct{}
+	dlCh chan *url.URL
+	wg   sync.WaitGroup
 
 	Parallel int
-
-	Logger *log.Logger
+	Done     chan struct{}
+	Logger   *log.Logger
 }
 
 func NewDownloader(url string, outputDir string) *Downloader {
@@ -54,22 +58,31 @@ func NewDownloader(url string, outputDir string) *Downloader {
 
 func (d *Downloader) Start(interval time.Duration) {
 	d.seq = sync.Map{}
-	d.close = make(chan interface{})
+	d.Done = make(chan struct{})
+	d.halt = make(chan struct{})
 	d.dlCh = make(chan *url.URL, 10)
 
 	// queue segment
 	go func() {
 		defer close(d.dlCh)
+		errCount := 0
 		ticker := time.NewTicker(interval)
 	loop:
 		for {
 			select {
-			case <-d.close:
+			case <-d.halt:
 				break loop
 			case <-ticker.C:
 				if urls, err := d.getSegments(); err != nil {
 					d.print("playlist download error: %v", err)
+					errCount += 1
+					if errCount > playlistDownloadErrorLimit {
+						d.print("exceed error limit")
+						d.Halt()
+						break loop
+					}
 				} else {
+					errCount = 0
 					for _, u := range urls {
 						d.dlCh <- u
 					}
@@ -90,11 +103,16 @@ func (d *Downloader) Start(interval time.Duration) {
 			}
 		}()
 	}
+
+	go func() {
+		d.wg.Wait()
+		close(d.Done)
+	}()
 }
 
-func (d *Downloader) Close() {
-	close(d.close)
-	d.wg.Wait()
+func (d *Downloader) Halt() {
+	d.print("halt download")
+	close(d.halt)
 }
 
 func (d *Downloader) getSegments() ([]*url.URL, error) {

@@ -194,7 +194,7 @@ func download(client *spacedl.Client, params []spacedl.QueryParameter, streamURL
 	dl.Start(1 * time.Second)
 
 	ticker := time.NewTicker(10 * time.Second)
-loop:
+
 	for {
 		select {
 		case <-ticker.C:
@@ -205,14 +205,13 @@ loop:
 				continue
 			}
 			if isSpaceEnded(resp) {
-				break loop
+				ticker.Stop()
+				dl.Halt()
 			}
+		case <-dl.Done:
+			return nil
 		}
 	}
-
-	dl.Close()
-
-	return nil
 }
 
 func getSegmentFilePaths(dir string) ([]string, error) {
