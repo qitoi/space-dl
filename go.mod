@@ -1,6 +1,6 @@
 module github.com/qitoi/space-dl
 
-go 1.17
+go 1.18
 
 require (
 	github.com/grafov/m3u8 v0.11.1

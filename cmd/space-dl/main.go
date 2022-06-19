@@ -17,6 +17,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -25,6 +26,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/spf13/pflag"
@@ -33,7 +36,11 @@ import (
 )
 
 const (
-	METADATA_FILENAME = "metadata.txt"
+	MetadataFilename = "metadata.txt"
+)
+
+var (
+	errRe = regexp.MustCompile(`^The following (\w+) cannot be null: ([\w, ]+)$`)
 )
 
 func usage() {
@@ -85,7 +92,9 @@ func run(spaceID string) error {
 		return err
 	}
 
-	resp, err := getAudioSpaceInfo(client, spaceID)
+	params := buildAudioSpaceInfoParams(spaceID)
+
+	resp, params, err := getAudioSpaceInfo(client, params)
 	if err != nil {
 		return err
 	}
@@ -115,7 +124,7 @@ func run(spaceID string) error {
 	logger := log.New(lw, "", log.LstdFlags)
 
 	// save metadata
-	metadata := filepath.Join(dir, METADATA_FILENAME)
+	metadata := filepath.Join(dir, MetadataFilename)
 	title := resp.Data.AudioSpace.Metadata.Title
 	if err := saveMetadata(metadata, spaceID, title, u.DisplayName, startedAt); err != nil {
 		return err
@@ -130,7 +139,7 @@ func run(spaceID string) error {
 	logger.Printf("stream url: %s\n", streamURL)
 
 	// download stream
-	if err := download(client, spaceID, streamURL, dir, logger); err != nil {
+	if err := download(client, params, streamURL, dir, logger); err != nil {
 		return err
 	}
 
@@ -178,7 +187,7 @@ func getStreamURL(client *spacedl.Client, mediaKey string) (string, error) {
 	return streamURL, nil
 }
 
-func download(client *spacedl.Client, spaceID, streamURL, dir string, logger *log.Logger) error {
+func download(client *spacedl.Client, params []spacedl.QueryParameter, streamURL, dir string, logger *log.Logger) error {
 	dl := spacedl.NewDownloader(streamURL, dir)
 	dl.Logger = logger
 
@@ -189,7 +198,8 @@ loop:
 	for {
 		select {
 		case <-ticker.C:
-			resp, err := getAudioSpaceInfo(client, spaceID)
+			resp, newParams, err := getAudioSpaceInfo(client, params)
+			params = newParams
 			if err != nil {
 				logger.Printf("space info error: %v\n", err)
 				continue
@@ -294,19 +304,76 @@ func isSpaceEnded(resp *spacedl.AudioSpaceByIDResponse) bool {
 	return resp.Data.AudioSpace.Metadata.State == "Ended"
 }
 
-func getAudioSpaceInfo(client *spacedl.Client, spaceID string) (*spacedl.AudioSpaceByIDResponse, error) {
-	params := make(map[string]interface{})
-	params["variables"] = spacedl.AudioSpaceByIDVariables{
+func buildAudioSpaceInfoParams(spaceID string) []spacedl.QueryParameter {
+	var params []spacedl.QueryParameter
+
+	variables := spacedl.AudioSpaceByIDVariables{
 		ID: spaceID,
 	}
-	params["features"] = spacedl.AudioSpaceByIDFeatures{}
+	v, _ := json.Marshal(variables)
+	var vv map[string]interface{}
+	json.Unmarshal(v, &vv)
+	params = append(params, spacedl.QueryParameter{
+		Name:  "variables",
+		Value: vv,
+	})
 
+	features := spacedl.AudioSpaceByIDFeatures{}
+	f, _ := json.Marshal(features)
+	var ff map[string]interface{}
+	json.Unmarshal(f, &ff)
+	params = append(params, spacedl.QueryParameter{
+		Name:  "features",
+		Value: ff,
+	})
+
+	return params
+}
+
+func getAudioSpaceInfo(client *spacedl.Client, params []spacedl.QueryParameter) (*spacedl.AudioSpaceByIDResponse, []spacedl.QueryParameter, error) {
 	var resp spacedl.AudioSpaceByIDResponse
-
 	err := client.Query("AudioSpaceById", params, &resp)
-	if err != nil {
-		return nil, err
+	if qe, ok := err.(*spacedl.QueryError); ok {
+		missingParam := false
+		for _, e := range qe.Errors {
+			fmt.Fprintf(os.Stderr, "AudioSpaceById query error: %v\n", e)
+			matches := errRe.FindStringSubmatch(e.Message)
+			if matches != nil {
+				missingParam = true
+				queryKey := matches[1]
+				for _, paramKey := range strings.Split(matches[2], ", ") {
+					params = appendMissingParam(params, queryKey, paramKey, false)
+				}
+			}
+		}
+		if missingParam {
+			return getAudioSpaceInfo(client, params)
+		}
+		return nil, nil, err
+	} else if err != nil {
+		return nil, nil, err
 	}
 
-	return &resp, nil
+	return &resp, params, nil
+}
+
+func appendMissingParam(params []spacedl.QueryParameter, paramKey, key string, value interface{}) []spacedl.QueryParameter {
+	p := params[:]
+	done := false
+	for idx := range p {
+		if params[idx].Name == paramKey {
+			params[idx].Value[key] = value
+			done = true
+			break
+		}
+	}
+	if !done {
+		p = append(p, spacedl.QueryParameter{
+			Name: paramKey,
+			Value: map[string]interface{}{
+				key: value,
+			},
+		})
+	}
+	return params
 }

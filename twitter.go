@@ -49,6 +49,11 @@ type Client struct {
 	guestToken  string
 }
 
+type QueryParameter struct {
+	Name  string
+	Value map[string]interface{}
+}
+
 type QueryError struct {
 	Errors     Errors
 	StatusCode int
@@ -267,19 +272,19 @@ func (c *Client) getMainJsURL() (string, error) {
 	return string(matches[1]), nil
 }
 
-func (c *Client) Query(name string, params map[string]interface{}, out interface{}) error {
+func (c *Client) Query(name string, params []QueryParameter, out interface{}) error {
 	op, ok := c.operations[name]
 	if !ok {
 		return fmt.Errorf("operation not found: %v", name)
 	}
 
 	query := make(url.Values)
-	for k, v := range params {
-		s, err := json.Marshal(v)
+	for _, v := range params {
+		s, err := json.Marshal(v.Value)
 		if err != nil {
 			return err
 		}
-		query.Add(k, string(s))
+		query.Add(v.Name, string(s))
 	}
 
 	u := fmt.Sprintf("https://twitter.com/i/api/graphql/%s/%s", op.QueryID, op.OperationName)
