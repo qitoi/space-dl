@@ -31,6 +31,10 @@ import (
 	"github.com/robertkrimen/otto/parser"
 )
 
+const (
+	queryErrBadGuestToken = "Bad guest token"
+)
+
 var (
 	mainJSRegexp = regexp.MustCompile(`"(https://[^"]*?/main.[a-z0-9]+.js)"`)
 	bearerRegexp = regexp.MustCompile(`"(A{10,}[a-zA-Z0-9%]{30,})"`)
@@ -207,11 +211,19 @@ func (c *Client) Initialize() error {
 		return err
 	}
 
-	c.guestToken, err = getGuestToken(c.bearerToken)
-	if err != nil {
+	if err = c.refreshGuestToken(); err != nil {
 		return err
 	}
 
+	return nil
+}
+
+func (c *Client) refreshGuestToken() error {
+	token, err := getGuestToken(c.bearerToken)
+	if err != nil {
+		return err
+	}
+	c.guestToken = token
 	return nil
 }
 
@@ -294,7 +306,19 @@ func (c *Client) Query(name string, params []QueryParameter, out interface{}) er
 	}
 	defer resp.Body.Close()
 
-	return parseResponse(resp, out)
+	err = parseResponse(resp, out)
+	if qe, ok := err.(*QueryError); ok {
+		for _, e := range qe.Errors {
+			if strings.EqualFold(e.Message, queryErrBadGuestToken) {
+				if err := c.refreshGuestToken(); err != nil {
+					return err
+				}
+				return c.Query(name, params, out)
+			}
+		}
+	}
+
+	return err
 }
 
 func parseResponse(resp *http.Response, out interface{}) error {
