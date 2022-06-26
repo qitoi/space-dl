@@ -199,11 +199,11 @@ func download(client *spacedl.Client, params []spacedl.QueryParameter, streamURL
 		select {
 		case <-ticker.C:
 			resp, newParams, err := getAudioSpaceInfo(client, params)
-			params = newParams
 			if err != nil {
 				logger.Printf("space info error: %v\n", err)
 				continue
 			}
+			params = newParams
 			if isSpaceEnded(resp) {
 				ticker.Stop()
 				dl.Halt()
