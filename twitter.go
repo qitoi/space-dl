@@ -90,6 +90,7 @@ type AudioSpaceByIDFeatures struct {
 	VibeTweetContextEnabled          bool `json:"vibe_tweet_context_enabled"`
 	StandardizedNudgesMisinfo        bool `json:"standardized_nudges_misinfo"`
 	ResponsiveWebEnhanceCardsEnabled bool `json:"responsive_web_enhance_cards_enabled"`
+	VoiceRoomsClippingEnabled        bool `json:"voice_rooms_clipping_enabled"`
 }
 
 type User struct {
