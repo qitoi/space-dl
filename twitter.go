@@ -83,14 +83,20 @@ type AudioSpaceByIDVariables struct {
 }
 
 type AudioSpaceByIDFeatures struct {
-	DontMentionMeViewApiEnabled      bool `json:"dont_mention_me_view_api_enabled"`
-	InteractiveTextEnabled           bool `json:"interactive_text_enabled"`
-	ResponsiveWebUcGqlEnabled        bool `json:"responsive_web_uc_gql_enabled"`
-	ResponsiveWebEditTweetApiEnabled bool `json:"responsive_web_edit_tweet_api_enabled"`
-	VibeTweetContextEnabled          bool `json:"vibe_tweet_context_enabled"`
-	StandardizedNudgesMisinfo        bool `json:"standardized_nudges_misinfo"`
-	ResponsiveWebEnhanceCardsEnabled bool `json:"responsive_web_enhance_cards_enabled"`
-	VoiceRoomsClippingEnabled        bool `json:"voice_rooms_clipping_enabled"`
+	Spaces2022H2Clipping                                           bool `json:"spaces_2022_h2_clipping"`
+	Spaces2022H2SpacesCommunities                                  bool `json:"spaces_2022_h2_spaces_communities"`
+	VerifiedPhoneLabelEnabled                                      bool `json:"verified_phone_label_enabled"`
+	TweetypieUnmentionOptimizationEnabled                          bool `json:"tweetypie_unmention_optimization_enabled"`
+	ResponsiveWebUcGqlEnabled                                      bool `json:"responsive_web_uc_gql_enabled"`
+	VibeApiEnabled                                                 bool `json:"vibe_api_enabled"`
+	ResponsiveWebEditTweetApiEnabled                               bool `json:"responsive_web_edit_tweet_api_enabled"`
+	GraphqlIsTranslatableRwebTweetIsTranslatableEnabled            bool `json:"graphql_is_translatable_rweb_tweet_is_translatable_enabled"`
+	StandardizedNudgesMisinfo                                      bool `json:"standardized_nudges_misinfo"`
+	TweetWithVisibilityResultsPreferGqlLimitedActionsPolicyEnabled bool `json:"tweet_with_visibility_results_prefer_gql_limited_actions_policy_enabled"`
+	ResponsiveWebGraphqlTimelineNavigationEnabled                  bool `json:"responsive_web_graphql_timeline_navigation_enabled"`
+	InteractiveTextEnabled                                         bool `json:"interactive_text_enabled"`
+	ResponsiveWebTextConversationsEnabled                          bool `json:"responsive_web_text_conversations_enabled"`
+	ResponsiveWebEnhanceCardsEnabled                               bool `json:"responsive_web_enhance_cards_enabled,"`
 }
 
 type User struct {
