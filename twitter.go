@@ -85,22 +85,26 @@ type AudioSpaceByIDVariables struct {
 type AudioSpaceByIDFeatures struct {
 	Spaces2022H2Clipping                                           bool `json:"spaces_2022_h2_clipping"`
 	Spaces2022H2SpacesCommunities                                  bool `json:"spaces_2022_h2_spaces_communities"`
+	ResponsiveWebTwitterBlueVerifiedBadgeIsEnabled                 bool `json:"responsive_web_twitter_blue_verified_badge_is_enabled"`
 	VerifiedPhoneLabelEnabled                                      bool `json:"verified_phone_label_enabled"`
+	ViewCountsPublicVisibilityEnabled                              bool `json:"view_counts_public_visibility_enabled"`
+	LongformNotetweetsConsumptionEnabled                           bool `json:"longform_notetweets_consumption_enabled"`
 	TweetypieUnmentionOptimizationEnabled                          bool `json:"tweetypie_unmention_optimization_enabled"`
 	ResponsiveWebUcGqlEnabled                                      bool `json:"responsive_web_uc_gql_enabled"`
 	VibeApiEnabled                                                 bool `json:"vibe_api_enabled"`
 	ResponsiveWebEditTweetApiEnabled                               bool `json:"responsive_web_edit_tweet_api_enabled"`
 	GraphqlIsTranslatableRwebTweetIsTranslatableEnabled            bool `json:"graphql_is_translatable_rweb_tweet_is_translatable_enabled"`
+	ViewCountsEverywhereApiEnabled                                 bool `json:"view_counts_everywhere_api_enabled"`
 	StandardizedNudgesMisinfo                                      bool `json:"standardized_nudges_misinfo"`
 	TweetWithVisibilityResultsPreferGqlLimitedActionsPolicyEnabled bool `json:"tweet_with_visibility_results_prefer_gql_limited_actions_policy_enabled"`
 	ResponsiveWebGraphqlTimelineNavigationEnabled                  bool `json:"responsive_web_graphql_timeline_navigation_enabled"`
 	InteractiveTextEnabled                                         bool `json:"interactive_text_enabled"`
 	ResponsiveWebTextConversationsEnabled                          bool `json:"responsive_web_text_conversations_enabled"`
-	ResponsiveWebEnhanceCardsEnabled                               bool `json:"responsive_web_enhance_cards_enabled,"`
+	ResponsiveWebEnhanceCardsEnabled                               bool `json:"responsive_web_enhance_cards_enabled"`
 }
 
 type User struct {
-	PeriscopeUserID   string `json:"periscope_user_id"`
+	PeriscopeUserId   string `json:"periscope_user_id"`
 	Start             int64  `json:"start"`
 	TwitterScreenName string `json:"twitter_screen_name"`
 	DisplayName       string `json:"display_name"`
@@ -108,9 +112,18 @@ type User struct {
 	IsVerified        bool   `json:"is_verified"`
 	IsMutedByAdmin    bool   `json:"is_muted_by_admin"`
 	IsMutedByGuest    bool   `json:"is_muted_by_guest"`
-	User              struct {
+	UserResults       struct {
 		RestId string `json:"rest_id"`
-	} `json:"user"`
+		Result struct {
+			Typename                              string `json:"__typename"`
+			IdentityProfileLabelsHighlightedLabel struct {
+			} `json:"identity_profile_labels_highlighted_label"`
+			HasNftAvatar   bool `json:"has_nft_avatar"`
+			IsBlueVerified bool `json:"is_blue_verified"`
+			Legacy         struct {
+			} `json:"legacy"`
+		} `json:"result"`
+	} `json:"user_results"`
 }
 
 type Errors []struct {
@@ -128,29 +141,53 @@ type AudioSpaceByIDResponse struct {
 	Data struct {
 		AudioSpace struct {
 			Metadata struct {
-				RestID               string `json:"rest_id"`
-				State                string `json:"state"`
-				Title                string `json:"title"`
-				MediaKey             string `json:"media_key"`
-				CreatedAt            int64  `json:"created_at"`
-				StartedAt            int64  `json:"started_at"`
-				UpdatedAt            int64  `json:"updated_at"`
-				IsEmployeeOnly       bool   `json:"is_employee_only"`
-				IsLocked             bool   `json:"is_locked"`
-				ConversationControls int    `json:"conversation_controls"`
-				CreatorResults       struct {
+				RestId                      string `json:"rest_id"`
+				State                       string `json:"state"`
+				Title                       string `json:"title"`
+				MediaKey                    string `json:"media_key"`
+				CreatedAt                   int64  `json:"created_at"`
+				StartedAt                   int64  `json:"started_at"`
+				EndedAt                     string `json:"ended_at"`
+				UpdatedAt                   int64  `json:"updated_at"`
+				DisallowJoin                bool   `json:"disallow_join"`
+				NarrowCastSpaceType         int    `json:"narrow_cast_space_type"`
+				IsEmployeeOnly              bool   `json:"is_employee_only"`
+				IsLocked                    bool   `json:"is_locked"`
+				IsSpaceAvailableForReplay   bool   `json:"is_space_available_for_replay"`
+				IsSpaceAvailableForClipping bool   `json:"is_space_available_for_clipping"`
+				ConversationControls        int    `json:"conversation_controls"`
+				TotalReplayWatched          int    `json:"total_replay_watched"`
+				TotalLiveListeners          int    `json:"total_live_listeners"`
+				CreatorResults              struct {
 					Result struct {
-						Typename string `json:"__typename"`
-						ID       string `json:"id"`
-						RestId   string `json:"rest_id"`
+						Typename                   string `json:"__typename"`
+						Id                         string `json:"id"`
+						RestId                     string `json:"rest_id"`
+						AffiliatesHighlightedLabel struct {
+						} `json:"affiliates_highlighted_label"`
+						HasNftAvatar   bool `json:"has_nft_avatar"`
+						IsBlueVerified bool `json:"is_blue_verified"`
+						Professional   struct {
+							RestId           string        `json:"rest_id"`
+							ProfessionalType string        `json:"professional_type"`
+							Category         []interface{} `json:"category"`
+						} `json:"professional"`
+						SuperFollowEligible bool `json:"super_follow_eligible"`
+						SuperFollowedBy     bool `json:"super_followed_by"`
+						SuperFollowing      bool `json:"super_following"`
 					} `json:"result"`
 				} `json:"creator_results"`
 			} `json:"metadata"`
+			Sharings struct {
+				Items     []interface{} `json:"items"`
+				SliceInfo struct {
+				} `json:"slice_info"`
+			} `json:"sharings"`
 			Participants struct {
-				Total     int    `json:"total"`
-				Admins    []User `json:"admins"`
-				Speakers  []User `json:"speakers"`
-				Listeners []User `json:"listeners"`
+				Total     int           `json:"total"`
+				Admins    []User        `json:"admins"`
+				Speakers  []interface{} `json:"speakers"`
+				Listeners []interface{} `json:"listeners"`
 			} `json:"participants"`
 		} `json:"audioSpace"`
 	} `json:"data"`
@@ -173,7 +210,7 @@ type LiveVideoStreamResponse struct {
 func GetOwnerUser(resp *AudioSpaceByIDResponse) *User {
 	ownerID := resp.Data.AudioSpace.Metadata.CreatorResults.Result.RestId
 	for _, u := range resp.Data.AudioSpace.Participants.Admins {
-		if u.User.RestId == ownerID {
+		if u.UserResults.RestId == ownerID {
 			return &u
 		}
 	}
@@ -306,7 +343,7 @@ func (c *Client) Query(name string, params []QueryParameter, out interface{}) er
 		query.Add(v.Name, string(s))
 	}
 
-	u := fmt.Sprintf("https://twitter.com/i/api/graphql/%s/%s", op.QueryID, op.OperationName)
+	u := fmt.Sprintf("https://api.twitter.com/graphql/%s/%s", op.QueryID, op.OperationName)
 	resp, err := c.get(u, &query)
 	if err != nil {
 		return err
@@ -350,6 +387,10 @@ func parseResponse(resp *http.Response, out interface{}) error {
 
 	if err := json.Unmarshal(b, out); err != nil {
 		return err
+	}
+
+	if resp.StatusCode == 200 {
+		return nil
 	}
 
 	status := resp.StatusCode / 100
