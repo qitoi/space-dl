@@ -36,14 +36,15 @@ const (
 )
 
 var (
-	mainJSRegexp = regexp.MustCompile(`"(https://[^"]*?/main.[a-z0-9]+.js)"`)
-	bearerRegexp = regexp.MustCompile(`"(A{10,}[a-zA-Z0-9%]{30,})"`)
+	mainJSRegexp    = regexp.MustCompile(`"(https://[^"]*?/main.[a-z0-9]+.js)"`)
+	apiSuffixRegexp = regexp.MustCompile(`api:"([a-z0-9]+)"`)
+	bearerRegexp    = regexp.MustCompile(`"(A{10,}[a-zA-Z0-9%]{30,})"`)
 )
 
 type Operation struct {
-	QueryID       string `json:"query_id"`
-	OperationName string `json:"operation_name"`
-	OperationType string `json:"operation_type"`
+	QueryID       string
+	OperationName string
+	OperationType string
 }
 
 type Client struct {
@@ -101,6 +102,9 @@ type AudioSpaceByIDFeatures struct {
 	InteractiveTextEnabled                                         bool `json:"interactive_text_enabled"`
 	ResponsiveWebTextConversationsEnabled                          bool `json:"responsive_web_text_conversations_enabled"`
 	ResponsiveWebEnhanceCardsEnabled                               bool `json:"responsive_web_enhance_cards_enabled"`
+	ResponsiveWebGraphqlExcludeDirectiveEnabled                    bool `json:"responsive_web_graphql_exclude_directive_enabled"`
+	ResponsiveWebGraphqlSkipUserProfileImageExtensionsEnabled      bool `json:"responsive_web_graphql_skip_user_profile_image_extensions_enabled"`
+	FreedomOfSpeechNotReachAppealLabelEnabled                      bool `json:"freedom_of_speech_not_reach_appeal_label_enabled"`
 }
 
 type User struct {
@@ -227,30 +231,43 @@ func NewClient() (*Client, error) {
 	}, nil
 }
 
+func replaceURLFile(u string, filename string) (string, error) {
+	u2, err := url.Parse(u)
+	if err != nil {
+		return "", err
+	}
+	pos := strings.LastIndex(u2.Path, "/")
+	u2.Path = u2.Path[:pos+1] + filename
+	return u2.String(), nil
+}
+
 func (c *Client) Initialize() error {
-	jsURL, err := c.getMainJsURL()
+	index, err := c.getIndex()
 	if err != nil {
 		return err
 	}
 
-	resp, err := c.get(jsURL, nil)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	js, err := ioutil.ReadAll(resp.Body)
+	mainJsURL, err := c.getMainJsURL(index)
 	if err != nil {
 		return err
 	}
 
-	jsStr := string(js)
-	c.operations = extractOperations(jsStr)
-	if len(c.operations) == 0 {
-		return errors.New("operations not found")
+	fmt.Printf("main js: %v\n", mainJsURL)
+
+	apiJsURL, err := c.getApiJsURL(mainJsURL, index)
+	if err != nil {
+		return err
 	}
 
-	c.bearerToken, err = getBearerToken(jsStr)
+	fmt.Printf("api js: %v\n", apiJsURL)
+
+	operations, err := c.getOperations(apiJsURL)
+	if err != nil {
+		return err
+	}
+	c.operations = operations
+
+	c.bearerToken, err = c.getBearerToken(mainJsURL)
 	if err != nil {
 		return err
 	}
@@ -260,6 +277,26 @@ func (c *Client) Initialize() error {
 	}
 
 	return nil
+}
+
+func (c *Client) getOperations(jsURL string) (map[string]*Operation, error) {
+	resp, err := c.get(jsURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	js, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	operations := extractOperations(string(js))
+	if len(operations) == 0 {
+		return nil, errors.New("operations not found")
+	}
+
+	return operations, nil
 }
 
 func (c *Client) refreshGuestToken() error {
@@ -308,24 +345,44 @@ func (c *Client) get(url string, query *url.Values) (*http.Response, error) {
 	return c.client.Do(req)
 }
 
-func (c *Client) getMainJsURL() (string, error) {
+func (c *Client) getIndex() ([]byte, error) {
 	resp, err := c.get("https://twitter.com/", nil)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	defer resp.Body.Close()
 
 	index, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
+	return index, nil
+}
+
+func (c *Client) getMainJsURL(index []byte) (string, error) {
 	matches := mainJSRegexp.FindSubmatch(index)
 	if len(matches) != 2 {
 		return "", errors.New("js url not found")
 	}
 
 	return string(matches[1]), nil
+}
+
+func (c *Client) getApiJsURL(mainJsUrl string, index []byte) (string, error) {
+	apiMatches := apiSuffixRegexp.FindSubmatch(index)
+	if len(apiMatches) != 2 {
+		return "", errors.New("api suffix not found")
+	}
+
+	apiFileName := "api." + string(apiMatches[1]) + "a.js"
+
+	apiJsUrl, err := replaceURLFile(mainJsUrl, apiFileName)
+	if err != nil {
+		return "", err
+	}
+
+	return apiJsUrl, nil
 }
 
 func (c *Client) Query(name string, params []QueryParameter, out interface{}) error {
@@ -372,9 +429,9 @@ func parseResponse(resp *http.Response, out interface{}) error {
 		return err
 	}
 
-	var errors Errors
+	var errs Errors
 	if raw, ok := m["errors"]; ok {
-		if err := json.Unmarshal(raw, &errors); err != nil {
+		if err := json.Unmarshal(raw, &errs); err != nil {
 			return err
 		}
 		delete(m, "errors")
@@ -394,9 +451,9 @@ func parseResponse(resp *http.Response, out interface{}) error {
 	}
 
 	status := resp.StatusCode / 100
-	if len(errors) > 0 || status == 4 || status == 5 {
+	if len(errs) > 0 || status == 4 || status == 5 {
 		return &QueryError{
-			Errors:     errors,
+			Errors:     errs,
 			StatusCode: resp.StatusCode,
 			Status:     resp.Status,
 		}
@@ -405,8 +462,19 @@ func parseResponse(resp *http.Response, out interface{}) error {
 	return nil
 }
 
-func getBearerToken(src string) (string, error) {
-	matches := bearerRegexp.FindStringSubmatch(src)
+func (c *Client) getBearerToken(jsURL string) (string, error) {
+	resp, err := c.get(jsURL, nil)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	js, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+
+	matches := bearerRegexp.FindStringSubmatch(string(js))
 	if len(matches) != 2 {
 		return "", errors.New("bearer token not found")
 	}
